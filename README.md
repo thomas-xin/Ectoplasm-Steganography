@@ -5,15 +5,15 @@
 `python3 -m pip install ectoplasm-steganography` - Linux
 
 ## Usage
-As a Python package (recommended due to caching):
+- As a Python package (recommended due to caching):
 ```py
 import ectoplasm
 image = ectoplasm.encode_image("image.png", "Hello World!", strength=1)
 assert ectoplasm.decode_image(image, strength=1) == "Hello World!"
 ```
-As a standalone program:
+- As a standalone program:<br />
 `py -m ectoplasm "image.png" "Hello World!" --strength 1 --encode "image2.png"`<br />
-`py -m ectoplasm "image.png" --strength 1 --decode "image2.png"` - Windows<br />
+`py -m ectoplasm "image.png" --strength 1 --decode "image2.png"` - Windows<br /><br />
 `python3 -m ectoplasm "image.png" "Hello World!" --strength 1 --encode "image2.png"`<br />
 `python3 -m ectoplasm "image.png" --strength 1 --decode "image2.png"` - Linux
 
