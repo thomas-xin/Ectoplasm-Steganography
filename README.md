@@ -6,11 +6,19 @@
 
 ## Usage
 - As a Python package (recommended due to caching):
-```py
+```python
 import ectoplasm
 image = ectoplasm.encode_image("image.png", "Hello World!", strength=1)
 assert ectoplasm.decode_image(image, strength=1) == "Hello World!"
 ```
+
+Additional utility functions are provided for applying automatically-selected compression where applicable:
+```python
+message = b"This is a test, please disregard!"
+compressed = ectoplasm.encode_message(message)
+assert ectoplasm.decode_message(compressed) == message
+```
+
 - As a standalone program:<br />
 `py -m ectoplasm "image.png" "Hello World!" --strength 1 --encode "image2.png"`<br />
 `py -m ectoplasm "image.png" --strength 1 --decode "image2.png"` - Windows<br /><br />

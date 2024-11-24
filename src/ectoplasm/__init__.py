@@ -1,4 +1,4 @@
 from . import ectoplasm
-from .ectoplasm import encode_image as encode_image, decode_image as decode_image
+from .ectoplasm import encode_image, decode_image, encode_message, decode_message
 
-__all__ = "ectoplasm", "encode_image", "decode_image"
+__all__ = "ectoplasm", "encode_image", "decode_image", "encode_message", "decode_message"
