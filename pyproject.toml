@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "Ectoplasm-Steganography"
+version = "0.0.1"
+authors = [
+  { name="thomas-xin", email="thomasxin@gmail.com" },
+]
+description = "A versatile lossless text/data encoding steganography algorithm + pipeline for images"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  "base45>=0.4.4",
+  "bitarray>=3.0.0",
+  "brotli>=1.1.0",
+  "numpy==1.26.4",
+  "opencv-python>=4.10.0.84",
+  "pillow>=11.0.0",
+  "pyqrcode>=1.2.1",
+  "pyzbar>=0.1.9",
+  "raptorq>=2.0.0",
+  "reedsolo>=1.7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/thomas-xin/Ectoplasm-Steganography"
+Issues = "https://github.com/thomas-xin/Ectoplasm-Steganography/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ectoplasm"]

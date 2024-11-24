@@ -1,0 +1,6 @@
+__pycache__
+dist
+other
+src/ectoplasm/tests
+*.egg-info
+stats.json

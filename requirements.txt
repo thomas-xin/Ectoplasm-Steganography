@@ -1,0 +1,10 @@
+base45>=0.4.4
+bitarray>=3.0.0
+brotli>=1.1.0
+numpy==1.26.4
+opencv-python>=4.10.0.84
+pillow>=11.0.0
+pyqrcode>=1.2.1
+pyzbar>=0.1.9
+raptorq>=2.0.0
+reedsolo>=1.7.0

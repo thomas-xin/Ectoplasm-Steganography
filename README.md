@@ -9,10 +9,13 @@ As a Python package (recommended due to caching):
 ```py
 import ectoplasm
 image = ectoplasm.encode_image("image.png", "Hello World!", strength=1)
+assert ectoplasm.decode_image(image, strength=1) == "Hello World!"
 ```
 As a standalone program:
-`py -m ectoplasm "image.png" "Hello World!" --strength 1` - Windows<br />
-`python3 -m ectoplasm "image.png" "Hello World!" --strength 1` - Linux
+`py -m ectoplasm "image.png" "Hello World!" --strength 1 --encode "image2.png"`<br />
+`py -m ectoplasm "image.png" --strength 1 --decode "image2.png"` - Windows<br />
+`python3 -m ectoplasm "image.png" "Hello World!" --strength 1 --encode "image2.png"`<br />
+`python3 -m ectoplasm "image.png" --strength 1 --decode "image2.png"` - Linux
 
 ## Intro
 Historically, steganography has existed for millenia, since well before the common era. The concept refers to the practice of concealing information within an unsuspecting object that is typically used to convey unrelated information, thus achieving security through obscurity.<br />
