@@ -615,15 +615,16 @@ def decode_image(image, strength=1, path=None, debug=None):
 			class BytesEncoder(json.JSONEncoder):
 				def default(self, o):
 					if isinstance(o, bytes):
-						return o.decode("charmap")
+						import base64
+						return base64.b64encode(o).decode("ascii")
 					else:
 						return super().default(o)
 
-			return json.dumps(image.info, cls=BytesEncoder)
+			return json.dumps(image.info, cls=BytesEncoder).encode("utf-8")
 		if path:
 			import c2pa
 			try:
-				return c2pa.read_file(path, "cache")
+				return c2pa.read_file(path, "cache").encode("utf-8")
 			except Exception:
 				pass
 		raise
