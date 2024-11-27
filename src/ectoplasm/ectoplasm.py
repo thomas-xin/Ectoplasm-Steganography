@@ -117,37 +117,36 @@ def encode_qr(text, version=3):
 	imo = imo.rotate(random.randint(0, 3) * 90)
 	return imo.crop(box)
 
-def encode_barcode(text):
-	import barcode
-	num = int.from_bytes(text, "big")
-	writer = barcode.Code128(str(num), writer=barcode.writer.ImageWriter("png"))
-	import io
-	b = io.BytesIO()
-	writer.write(b, {"font_size": 3, "text_distance": 3, "module_width": 1, "module_height": 24, "quiet_zone": 8, "dpi": 25.40000001})
-	b.seek(0)
-	im = Image.open(b)
-	return im.crop((0, 1, im.width, 25))
-
-reader1 = None
-reader2 = None
+qreader_scanner = None
+pyzbar_reader = None
+qreader_reader = None
+workers = None
 def decode_qr(images, channels=1):
-	global reader1, reader2
+	global qreader_scanner, pyzbar_reader, qreader_reader, workers
 	if isinstance(images, Image.Image):
 		images = [images]
-	if not reader1:
+	if not qreader_scanner:
+		from qreader import QReader
+		qreader_scanner = QReader(model_size="n", min_confidence=0.4, reencode_to=None)
+	if not pyzbar_reader:
 		import pyzbar.pyzbar
-		reader1 = pyzbar.pyzbar
+		pyzbar_reader = pyzbar.pyzbar
 	import base45
 	seen = []
+	scans = []
 	for image in images:
 		if image.mode not in ("L", "RGB"):
 			image = image.convert("L")
-		for scale_factor in (0.25, 1 / 3, 0.5):
+		image_np = np.asanyarray(image, dtype=np.uint8)
+		scanned = qreader_scanner.detect(image_np)
+		if not scanned:
+			continue
+		for scale_factor in (0.5,):
 			im = image.resize((round(image.width * scale_factor), round(image.height * scale_factor)), resample=Image.Resampling.LANCZOS)
 			a = (np.asanyarray(im, dtype=np.uint8) > 127).view(np.uint8)
 			a *= 255
 			im = Image.fromarray(a, "L").resize((im.width * 3, im.height * 3), resample=Image.Resampling.NEAREST)
-			dets = reader1.decode(im, symbols=[reader1.ZBarSymbol.QRCODE])
+			dets = pyzbar_reader.decode(im, symbols=[pyzbar_reader.ZBarSymbol.QRCODE])
 			if dets:
 				a2 = np.array(image, dtype=np.uint8)
 				polys = []
@@ -169,75 +168,71 @@ def decode_qr(images, channels=1):
 			small = min(image.width, image.height, 1024)
 			image = image.resize((small, small), resample=Image.Resampling.LANCZOS)
 		seen.append(image)
-	if not reader2:
+		scans.append(scanned)
+	if not qreader_reader:
 		from qreader import QReader
-		reader2 = QReader(model_size="s", min_confidence=0.25, reencode_to=None)
-	for im in tuple(seen):
-		if im.width == im.height == 1024:
-			quads = (
-				im.crop((0, 0, 512, 512)).rotate(180),
-				im.crop((512, 512, 1024, 1024)),
-				im.crop((0, 512, 512, 1024)).rotate(90),
-				im.crop((512, 0, 1024, 512)).rotate(-90),
-			)
-			seen.extend(quads)
-	found = set()
-	retries = []
+		qreader_reader = QReader(model_size="s", min_confidence=0.5, reencode_to=None)
+	if not workers:
+		import concurrent.futures
+		workers = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+	img_futs = []
+	for image, scanned in zip(seen, scans):
+		img_fut = []
+		for data in scanned:
+			fut = workers.submit(complete_decode, image_np, data)
+			img_fut.append(fut)
+		img_futs.append(img_fut)
+	for i, image in enumerate(seen):
+		if not img_futs[i]:
+			continue
+		a2 = np.array(image, dtype=np.uint8)
+		polys = []
+		for fut in img_futs[i]:
+			decoded = fut.result()
+			try:
+				assert decoded
+				text = decoded[0].result.data.decode("ascii")
+				value = base45.b45decode(text)
+			except (AssertionError, ValueError, UnicodeDecodeError):
+				yield None
+				continue
+			while len(value) >= 51:
+				yield value[:51]
+				value = value[51:]
+			poly = np.array([[point[0] / scale_factor / 3, point[1] / scale_factor / 3] for point in data["polygon_xy"]], dtype=np.int32)
+			polys.append(poly)
+			while len(value) >= 51:
+				yield value[:51]
+				value = value[51:]
+		import cv2
+		cv2.fillPoly(a2, pts=polys, color=(255, 255, 255))
+		seen[i] = Image.fromarray(a2)
+	futs = []
 	for i, image in enumerate(seen):
 		image_np = np.asanyarray(image, dtype=np.uint8)
-		for data in reader2.detect(image_np):
-			if i not in found and image.width == image.height == 1024:
-				quads = (
-					image.crop((0, 0, 512, 512)).rotate(180),
-					image.crop((512, 512, 1024, 1024)),
-					image.crop((0, 512, 512, 1024)).rotate(90),
-					image.crop((512, 0, 1024, 512)).rotate(-90),
-				)
-				retries.extend(quads)
-			found.add(i)
+		for data in qreader_reader.detect(image_np):
 			if not data:
 				yield None
 				continue
-			try:
-				decoded = reader2.decode(image_np, data)
-			except Exception:
-				import traceback
-				traceback.print_exc()
-				yield None
-				continue
-			if not decoded:
-				yield None
-				continue
-			try:
-				value = base45.b45decode(decoded)
-			except ValueError:
-				continue
-			while len(value) >= 51:
-				yield value[:51]
-				value = value[51:]
-	for i, image in enumerate(retries):
-		image_np = np.asanyarray(image, dtype=np.uint8)
-		for data in reader2.detect(image_np):
-			if not data:
-				yield None
-				continue
-			try:
-				decoded = reader2.decode(image_np, data)
-			except Exception:
-				import traceback
-				traceback.print_exc()
-				yield None
-				continue
-			if not decoded:
-				yield None
-				continue
-			try:
-				value = base45.b45decode(decoded)
-			except ValueError:
-				continue
-			while len(value) >= 51:
-				yield value[:51]
-				value = value[51:]
+			fut = workers.submit(complete_decode, image_np, data)
+			futs.append(fut)
+	for fut in futs:
+		decoded = fut.result()
+		try:
+			assert decoded
+			text = decoded[0].result.data.decode("ascii")
+			value = base45.b45decode(text)
+		except (AssertionError, ValueError, UnicodeDecodeError):
+			yield None
+			continue
+		while len(value) >= 51:
+			yield value[:51]
+			value = value[51:]
+
+def complete_decode(image_np, data):
+	import patches as qreader_patches
+	attempts = (1, 1.5, 2, 2.5, 3, 4) if data["confidence"] >= 0.75 else (1, 1.5, 2.5)
+	return qreader_patches._decode_qr_zbar(qreader_reader, image=image_np, detection_result=data, scale_factors=attempts)
 
 def encode_message(message):
 	if isinstance(message, str):
@@ -259,7 +254,6 @@ def encode_message(message):
 	encodes["brotli"] = brotli.compress(message, quality=11, mode=brotli.MODE_TEXT)
 	encodes["paq"] = paq.compress(message)
 	order = sorted(encodes, key=lambda k: len(encodes[k]))
-	# print("Compressed sizes:\n" + "\n".join(f"{k}:{len(encodes[k])}" for k in order))
 	return encodes[order[0]]
 
 def decode_message(message):
@@ -363,7 +357,6 @@ def batch_images(it, maxsize, tesselation="plain", tile=4, qr_scale=2, seed=0):
 	rtes = tesselation if tesselation != "diagonal" else "plain"
 	for x, y, w, h in tesselate(rtes, (maxsize, maxsize), (scaled, scaled), seed=seed):
 		qs = 2
-		# print(qs, w, h, scaled, scaled)
 		im2 = retrieve(qs).resize((w, h), resample=Image.Resampling.NEAREST)
 		grid_img.paste(im2, (x, y))
 	if tesselation == "diagonal":
@@ -401,13 +394,10 @@ def encode_fountain(data, qr_scale=2, maxsize=512, channels=1, redundancy=6):
 	qr_size = qr_info["size"]
 	n = qr_info["n"]
 	mcount = (maxsize // buffer // qr_size) ** 2 * channels
-	# print("Maximum chunks:", mcount)
 	count = len(data) // n + 1
-	# print("Required chunks:", count)
 	if len(data) > 65535 or count > mcount:
 		raise OverflowError("Input exceeds maximum representable size.")
 	used = (maxsize // (qr_size * 2) * 2) ** 2 * channels
-	# print("Used chunks:", used)
 	def iter_fountain():
 		from raptorq import Encoder
 		encoder = Encoder.with_defaults(data, n)
@@ -480,14 +470,12 @@ def encode_image(image, message, redundancy=6, dither_wrap=4, strength=1, compre
 		if "A" in image.mode:
 			A = image.getchannel("A")
 		image = image.convert("RGB")
-	# image = batch_barcodes(fountain, image, strength=strength)
 	rgb = np.array(image, dtype=np.float32)
 	rgb *= 1 / 255
 	if compress:
 		data = encode_message(message)
 	else:
 		data = message
-	# print("Encoded message:", data)
 
 	def encode_part(imt, depth=256, start=0):
 		for i, arr in enumerate(imt, start):
@@ -527,7 +515,6 @@ def encode_image(image, message, redundancy=6, dither_wrap=4, strength=1, compre
 			np.clip(arr, 0, 1, out=arr)
 			if debug:
 				a = arr.T * 255
-				# print(a.shape)
 				a = quantise_into(a, clip=(0, 255))
 				im = Image.fromarray(a, mode="L")
 				im.save(f"{debug}/{i}.png")

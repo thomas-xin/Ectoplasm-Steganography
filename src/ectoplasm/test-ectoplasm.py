@@ -2,18 +2,31 @@ import io
 import logging
 import os
 import random
+import time
 import orjson
 import numpy as np
 from PIL import Image, ImageChops, ImageEnhance, ImageOps
 import ectoplasm
 
-strength = 12
+strength = 1
 
-def predicate(func, fountain, message, debug=None):
-	decoded = ectoplasm.decode_image(func(fountain), strength=strength, debug=debug)
-	if decoded != message:
-		logging.warning((decoded + b" != " + message).decode("utf-8", "replace"))
-	return decoded == message
+def predicate(func, fountain, message, stats, path, debug=None):
+	im = func(fountain)
+	t = time.time()
+	try:
+		decoded = ectoplasm.decode_image(im, strength=strength, debug=debug)
+		t2 = time.time()
+		if decoded != message:
+			logging.warning((decoded + b" != " + message).decode("utf-8", "replace"))
+		if decoded == message:
+			stats.setdefault("timings", {}).setdefault("decode-success", []).append([path, t2 - t])
+			return True
+		stats.setdefault("timings", {}).setdefault("decode-fail", []).append([path, t2 - t])
+		return False
+	except Exception:
+		t2 = time.time()
+		stats.setdefault("timings", {}).setdefault("decode-fail", []).append([path, t2 - t])
+		raise
 
 # Directly decode (as control)
 def layer_direct(fountain):
@@ -70,7 +83,7 @@ def layer_hueshift(fountain):
 # Resize image by a random factor, from 25% to 225% of the image's original size
 def layer_resize(fountain):
 	logging.info("Resize test:")
-	return fountain.resize((round((random.random() + 0.5) * fountain.width), round((random.random() + 0.5) * fountain.height)), resample=Image.Resampling.BICUBIC)
+	return fountain.resize((round((random.random() + 0.5) * fountain.width), round((random.random() + 0.5) * fountain.height)), resample=Image.Resampling.LANCZOS)
 # Performs the magik filter on the image, up to 33% of the image's original size
 def quad_as_rect(quad):
 	if quad[0] != quad[2]:
@@ -145,7 +158,7 @@ def layer_magik(fountain):
 	dst_grid = griddify(shape_to_rect(fountain.size), 4, 4)
 	src_grid = distort_grid(dst_grid, np.sqrt(fountain.width * fountain.height) // 4 // 3)
 	mesh = grid_to_mesh(src_grid, dst_grid)
-	return fountain.transform(fountain.size, Image.Transform.MESH, mesh, resample=Image.Resampling.NEAREST)
+	return fountain.transform(fountain.size, Image.Transform.MESH, mesh, resample=Image.Resampling.BICUBIC)
 # Convert image to jpeg and back
 def layer_jpeg(fountain):
 	logging.info("JPEG test:")
@@ -174,6 +187,7 @@ available = {
 	"decode-jpeg": layer_jpeg,
 }
 
+# if __name__ == "__main__":
 if not os.path.exists("tests"):
 	os.mkdir("tests")
 
@@ -189,6 +203,19 @@ if os.path.exists(statfile):
 	with open(statfile, "rb") as f:
 		stats.update(orjson.loads(f.read()))
 
+for i in range(100):
+	path = random.choice(images)
+	im = Image.open(path)
+	t = time.time()
+	try:
+		ectoplasm.decode_image(im, debug=None)#"tests/decode-null")
+	except Exception as ex:
+		print(repr(ex))
+	t2 = time.time()
+	stats.setdefault("timings", {}).setdefault("decode-null", []).append([path, t2 - t])
+	with open(statfile, "wb") as f:
+		f.write(orjson.dumps(stats))
+
 for i in range(1000):
 	im = None
 	while not im:
@@ -199,10 +226,13 @@ for i in range(1000):
 	message = b""
 	while not message.strip():
 		message = random.choice(texts)
-	fountain = ectoplasm.encode_image(im, message, redundancy=1, dither_wrap=2, strength=strength, debug="tests/encode")
+	t = time.time()
+	fountain = ectoplasm.encode_image(im, message, redundancy=1, dither_wrap=2, strength=strength, debug=None)#"tests/encode")
+	t2 = time.time()
+	stats.setdefault("timings", {}).setdefault("encode", []).append([path, t2 - t])
 	transform = random.choice(tuple(available))
 	try:
-		assert predicate(available[transform], fountain, message, debug="tests/" + transform)
+		assert predicate(available[transform], fountain, message, stats=stats, path=path, debug=None)#"tests/" + transform)
 	except Exception as ex:
 		logging.error("FAIL: " + repr(ex) + ": " + path + ", " + transform + "; " + message.decode("utf-8", "replace"))
 	else:
