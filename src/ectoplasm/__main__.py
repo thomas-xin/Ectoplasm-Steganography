@@ -8,11 +8,11 @@ parser.add_argument("-e", "--encode", nargs="?", const=True, default=None, requi
 args = parser.parse_args()
 
 if args.encode is not None:
-    from .ectoplasm import encode_image
+    from .ectoplasm import encode_image, save_image
     im = encode_image(args.image_path, args.message, strength=args.strength, compress=args.compress)
     if not isinstance(args.encode, str):
         args.encode = (p := args.image_path.rsplit(".", 1))[0] + "~." + p[1]
-    im.save(args.encode)
+    save_image(im, args.message, args.encode)
     print(f'Output successfully written to "{args.encode}".')
 else:
     from .ectoplasm import decode_image

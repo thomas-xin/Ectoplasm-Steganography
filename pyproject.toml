@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "Ectoplasm-Steganography"
-version = "0.0.3"
+version = "0.0.4"
 authors = [
   { name="thomas-xin", email="thomasxin@gmail.com" },
 ]

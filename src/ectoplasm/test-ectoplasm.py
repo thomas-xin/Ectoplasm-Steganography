@@ -17,7 +17,7 @@ def predicate(func, fountain, message, stats, path, debug=None):
 		decoded = ectoplasm.decode_image(im, strength=strength, debug=debug)
 		t2 = time.time()
 		if decoded != message:
-			logging.warning((decoded + b" != " + message).decode("utf-8", "replace"))
+			logging.warning((repr(decoded) + " != " + repr(message)))
 		if decoded == message:
 			stats.setdefault("timings", {}).setdefault("decode-success", []).append([path, t2 - t])
 			return True
@@ -203,7 +203,7 @@ if os.path.exists(statfile):
 	with open(statfile, "rb") as f:
 		stats.update(orjson.loads(f.read()))
 
-for i in range(100):
+for i in range(1):
 	path = random.choice(images)
 	im = Image.open(path)
 	t = time.time()
@@ -234,6 +234,8 @@ for i in range(1000):
 	try:
 		assert predicate(available[transform], fountain, message, stats=stats, path=path, debug=None)#"tests/" + transform)
 	except Exception as ex:
+		from traceback import print_exc
+		print_exc()
 		logging.error("FAIL: " + repr(ex) + ": " + path + ", " + transform + "; " + message.decode("utf-8", "replace"))
 	else:
 		stats[transform][0] += 1

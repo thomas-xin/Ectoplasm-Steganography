@@ -234,13 +234,16 @@ def complete_decode(image_np, data):
 	attempts = (1, 1.5, 2, 2.5, 3, 4) if data["confidence"] >= 0.75 else (1, 1.5, 2.5)
 	return qreader_patches._decode_qr_zbar(qreader_reader, image=image_np, detection_result=data, scale_factors=attempts)
 
-def encode_message(message):
+def to_bytes(message):
 	if isinstance(message, str):
 		message = message.encode("utf-8")
 	if isinstance(message, memoryview):
 		message = bytes(message)
 	elif not isinstance(message, bytes):
-		raise TypeError("`message` should be an instance of `str`, `bytes`, or `memoryview`.")
+		raise TypeError(f"`message` ({type(message)}) should be an instance of `str`, `bytes`, or `memoryview`.")
+	return message
+
+def encode_message(message):
 	# import zlib
 	# import lzma
 	import brotli
@@ -262,7 +265,7 @@ def decode_message(message):
 	if isinstance(message, memoryview):
 		message = bytes(message)
 	elif not isinstance(message, bytes):
-		raise TypeError("`message` should be an instance of `str`, `bytes`, or `memoryview`.")
+		raise TypeError(f"`message` ({type(message)}) should be an instance of `str`, `bytes`, or `memoryview`.")
 	if not message:
 		raise ValueError("Input is empty.")
 	if message.startswith(b"\x00c"):
@@ -447,13 +450,14 @@ def decode_fountain(fountain):
 def forceload(image):
 	if isinstance(image, np.ndarray):
 		image = Image.fromarray(image, mode="RGB" if image.shape[-1] == 3 else "L")
-	elif isinstance(image, (str, io.IOBase)):
+	elif isinstance(image, (os.PathLike, io.IOBase)):
 		image = Image.open(image)
 	elif isinstance(image, (bytes, memoryview)):
 		image = Image.open(io.BytesIO(image))
 	elif not isinstance(image, Image.Image):
-		raise TypeError("`image` should be an instance of `PIL.Image.Image`, `np.ndarray`, `bytes`, `memoryview`, `io.IOBase` or `os.PathLike`.")
+		raise TypeError(f"`image` ({type(image)}) should be an instance of `PIL.Image.Image`, `np.ndarray`, `bytes`, `memoryview`, `io.IOBase` or `os.PathLike`.")
 	return image
+
 
 def encode_image(image, message, redundancy=6, dither_wrap=4, strength=1, compress=True, debug=None):
 	image = forceload(image)
@@ -472,6 +476,7 @@ def encode_image(image, message, redundancy=6, dither_wrap=4, strength=1, compre
 		image = image.convert("RGB")
 	rgb = np.array(image, dtype=np.float32)
 	rgb *= 1 / 255
+	message = to_bytes(message)
 	if compress:
 		data = encode_message(message)
 	else:
@@ -545,7 +550,7 @@ def encode_image(image, message, redundancy=6, dither_wrap=4, strength=1, compre
 		im.save(f"{debug}/fountain.png")
 	return im
 
-def decode_image(image, strength=1, debug=None):
+def decode_image(image, strength=1, path=None, debug=None):
 	image = forceload(image)
 	if debug and not os.path.exists(debug):
 		os.mkdir(debug)
@@ -596,4 +601,43 @@ def decode_image(image, strength=1, debug=None):
 		hls = cv2.cvtColor(rgb, cv2.COLOR_RGB2HLS)
 		yield from decode_part(hls.T, depth=64 / strength, start=3)
 
-	return decode_fountain(chunking(image))
+	try:
+		return decode_fountain(chunking(image))
+	except Exception:
+		if image.info:
+			if image.info.get("ectoplasm"):
+				try:
+					return decode_message(image.info["ectoplasm"].encode("charmap"))
+				except Exception:
+					pass
+			import json
+
+			class BytesEncoder(json.JSONEncoder):
+				def default(self, o):
+					if isinstance(o, bytes):
+						return o.decode("charmap")
+					else:
+						return super().default(o)
+
+			return json.dumps(image.info, cls=BytesEncoder)
+		if path:
+			import c2pa
+			try:
+				return c2pa.read_file(path, "cache")
+			except Exception:
+				pass
+		raise
+
+
+def save_image(image, message, path, compress=True):
+	from PIL.PngImagePlugin import PngInfo
+	image = forceload(image)
+	message = to_bytes(message)
+	if compress:
+		data = encode_message(message)
+	else:
+		data = message
+	meta = PngInfo()
+	meta.add_text("ectoplasm", data.decode("charmap"))
+	image.save(path, format="png", compress_level=6, pnginfo=meta)
+	return image
