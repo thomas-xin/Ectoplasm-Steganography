@@ -450,12 +450,12 @@ def decode_fountain(fountain):
 def forceload(image):
 	if isinstance(image, np.ndarray):
 		image = Image.fromarray(image, mode="RGB" if image.shape[-1] == 3 else "L")
-	elif isinstance(image, (os.PathLike, io.IOBase)):
+	elif isinstance(image, (str, os.PathLike, io.IOBase)):
 		image = Image.open(image)
 	elif isinstance(image, (bytes, memoryview)):
 		image = Image.open(io.BytesIO(image))
 	elif not isinstance(image, Image.Image):
-		raise TypeError(f"`image` ({type(image)}) should be an instance of `PIL.Image.Image`, `np.ndarray`, `bytes`, `memoryview`, `io.IOBase` or `os.PathLike`.")
+		raise TypeError(f"`image` ({type(image)}) should be an instance of `PIL.Image.Image`, `np.ndarray`, `bytes`, `memoryview`, `io.IOBase`, `str` or `os.PathLike`.")
 	return image
 
 
@@ -550,7 +550,7 @@ def encode_image(image, message, redundancy=6, dither_wrap=4, strength=1, compre
 		im.save(f"{debug}/fountain.png")
 	return im
 
-def decode_image(image, strength=1, path=None, debug=None):
+def decode_image(image, strength=1, path=None, all_metadata=False, debug=None):
 	image = forceload(image)
 	if debug and not os.path.exists(debug):
 		os.mkdir(debug)
@@ -610,23 +610,30 @@ def decode_image(image, strength=1, path=None, debug=None):
 					return decode_message(image.info["ectoplasm"].encode("charmap"))
 				except Exception:
 					pass
-			import json
+			if all_metadata:
+				import json
 
-			class BytesEncoder(json.JSONEncoder):
-				def default(self, o):
-					if isinstance(o, bytes):
-						import base64
-						return base64.b64encode(o).decode("ascii")
-					else:
-						return super().default(o)
+				class BytesEncoder(json.JSONEncoder):
+					def default(self, o):
+						if isinstance(o, bytes):
+							if o.isascii():
+								return o.decode("ascii")
+							import base64
+							return base64.b64encode(o).decode("ascii")
+						else:
+							return super().default(o)
 
-			return json.dumps(image.info, cls=BytesEncoder).encode("utf-8")
+				return json.dumps(image.info, cls=BytesEncoder).encode("utf-8")
 		if path:
-			import c2pa
 			try:
-				return c2pa.read_file(path, "cache").encode("utf-8")
-			except Exception:
+				import c2pa
+			except ImportError:
 				pass
+			else:
+				try:
+					return c2pa.read_file(path, "cache").encode("utf-8")
+				except Exception:
+					pass
 		raise
 
 

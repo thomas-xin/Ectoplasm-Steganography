@@ -8,8 +8,8 @@
 - As a Python package (recommended due to caching):
 ```python
 import ectoplasm
-image = ectoplasm.encode_image("image.png", "Hello World!", strength=1)
-assert ectoplasm.decode_image(image, strength=1) == "Hello World!"
+image = ectoplasm.encode_image("image.png", b"Hello World!", strength=1)
+assert ectoplasm.decode_image(image, strength=1) == b"Hello World!"
 ```
 
 Additional utility functions are provided for applying automatically-selected compression where applicable:
@@ -17,6 +17,12 @@ Additional utility functions are provided for applying automatically-selected co
 message = b"This is a test, please disregard!"
 compressed = ectoplasm.encode_message(message)
 assert ectoplasm.decode_message(compressed) == message
+```
+
+Utility functions are also provided for saving information to image metadata. Metadata stored in this manner is automatically decoded by `decode_image`, however steganographic data is prioritised where intact.
+```python
+ectoplasm.save_image(image, b"Hello World!", "image~2.png")
+assert ectoplasm.decode_image("image~2.png") == b"Hello World!" # This works even if the steganographic layer was not applied (ectoplasm.encode_image), however since it relies on metadata, this produces a much less robust tag. For best results it is recommended to apply both encode_image and save_image (default behaviour in standalone mode).
 ```
 
 - As a standalone program:<br />
@@ -66,7 +72,7 @@ As of current (November 2024), this implementation of Ectoplasm encodes and deco
 #### Encoding
 - Convert the data from text to binary if not already in that format
 - Automatically select from a list of compression algorithms (currently Base128, [Brotli](https://en.wikipedia.org/wiki/Brotli) and [PAQ9A](https://en.wikipedia.org/wiki/PAQ)) to reduce the size of the data where possible
-- Split the data into equally-sized chunks using [RaptorQ](https://datatracker.ietf.org/doc/html/rfc6330), which produces an arbitrary amount of output data that does not need to be fully recovered or recovered in the correct order to be decoded
+- Split the data into equally-sized chunks using [RaptorQ](https://datatracker.ietf.org/doc/html/rfc6330), which produces an arbitrary amount of output data that does not need to be fully recovered or recovered in the correct order to be decoded. Unlike with traditional error correction algorithms, this method enables data recovery even in circumstances where total damage to the data exceeds 50%, as long as sufficient contiguous blocks of data are able to be recovered (which tends to occur with image operations such as cropping).
 - Create subchunk headers containing total and chunk sizes using [Reed-Solomon](https://en.wikipedia.org/wiki/Reed%E2%80%93Solomon_error_correction) encoding, as RaptorQ does not natively store this information
 - Convert all prepared chunks into [Base45](https://www.ietf.org/archive/id/draft-faltstrom-base45-08.html), reducing to an alphanumeric representation with minimal overhead
 - Encode the data into a sequence of [QR](https://en.wikipedia.org/wiki/QR_code) codes (this produces numerous monochrome 2D barcodes that are made to be easily distinguishable amidst noise or other image data)
@@ -127,7 +133,7 @@ You have twenty-three hours before the piss DRRRROPLLLETS hit the fucking Earth,
 - Skew image up to 50%, bicubic sampling: `117/147` **(79.6%)**
 - Crop image to minimum 25% size: `165/165` **(100%)**
 - Hueshift image 0~360 degrees: `170/170` **(100%)**
-- Resize image between 25% to 225% of original size, bicubic sampling: `120/165` **(72.7%)**
+- Resize image between 25% to 225% of original size, lanczos sampling: `120/165` **(72.7%)**
 - Apply "magik" grid distort filter, nearest neighbour sampling (visualised above): `157/157` **(100%)**
 - Adjust image brightness -50%~+50%: `96/157` **(61.1%)**
 - Compress image as JPEG: `1/185` **(0.5%)**
@@ -135,6 +141,8 @@ You have twenty-three hours before the piss DRRRROPLLLETS hit the fucking Earth,
 ## Limitations
 As seen from the metrics, any modifications that leave a large portion of the original image intact, such as nearest-neighbour sampling, do not cause many problems in decoding. However, the algorithm struggles slightly with bicubic or lanczos sampling, which may cause some images to fail to decode, when encoded at the default strength. The resistance to lossy compression is particularly poor, requiring encoding at around 1200% strength for a longer message to be recovered, which is unreasonable for general use, as it significantly distorts the image with noise and artifacts.<br />
 Ectoplasm is designed for images of size 1024x1024 to 2048x2048, and compressed data sizes of 4B to 1KiB, but may function outside those ranges at reduced levels of redundancy, or lowered computational efficiency. The absolute maximum size that may be assigned for any usage is 64KiB, beyond which integer overflow of the unsigned 2-byte headers would prevent successful encoding. In practice however, the amount of valid tile spaces is usually the limiting factor, in which case there is not yet a straightforward way to predict.
+<br />
+One caveat worth mentioning is that due to the current dithering methods used to better visually hide the watermarking, random uniform noise is introduced into the image. This can significantly impact compression algorithms, for example a PNG that was 1MB in size may be inflated to 4MB with steganography applied, due to the effect of noise on entropy. This may change in the future with optimisations.
 
 ## Roadmap
 As there still remain significant weaknesses in the algorithm's capability, development is likely to continue, with greater focus on the resistance to resampling and compression, as these are destructive/lossy transformations also designed mainly for visual transparency. Additional improvements to the general logic of the algorithm are also under construction, such as the ability to store or autodetect the strength value to fully eliminate the requirement of information required for decoding, as well as better management of payload size vs robustness.

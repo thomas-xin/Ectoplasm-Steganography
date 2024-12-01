@@ -2,7 +2,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("image_path")
 parser.add_argument("message", default="")
-parser.add_argument("-s", "--strength", default=1, required=False)
+parser.add_argument("-s", "--strength", type=int, default=1, required=False)
 parser.add_argument("-c", "--compress", action="store_true", default=True, required=False)
 parser.add_argument("-e", "--encode", nargs="?", const=True, default=None, required=False)
 args = parser.parse_args()
