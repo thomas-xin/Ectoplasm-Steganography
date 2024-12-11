@@ -4,6 +4,7 @@ brotli>=1.1.0
 c2pa-python>=0.4.0
 numpy==1.26.4
 opencv-python>=4.10.0.84
+paq>=0.1.1
 pillow>=11.0.0
 pyqrcode>=1.2.1
 pyzbar>=0.1.9

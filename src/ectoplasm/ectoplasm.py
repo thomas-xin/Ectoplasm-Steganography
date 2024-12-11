@@ -244,18 +244,27 @@ def to_bytes(message):
 	return message
 
 def encode_message(message):
-	# import zlib
-	# import lzma
-	import brotli
-	import paq
 	encodes = {}
+	try:
+		import brotli
+	except ImportError:
+		pass
+	else:
+		encodes["brotli"] = brotli.compress(message, quality=11, mode=brotli.MODE_TEXT)
+	try:
+		import paq
+	except ImportError:
+		pass
+	else:
+		encodes["paq"] = paq.compress(message)
+	if not encodes:
+		import zlib
+		import lzma
+		encodes["zlib"] = zlib.compress(message, level=9)
+		encodes["lzma"] = lzma.compress(message, format=lzma.FORMAT_ALONE, check=-1, preset=9, filters=None)
 	encodes["raw"] = b"\x91" + message
 	if message.isascii():
 		encodes["b128"] = b"\x92" + decode_b128(message)
-	# encodes["zlib"] = zlib.compress(message, level=9)
-	# encodes["lzma"] = lzma.compress(message, format=lzma.FORMAT_ALONE, check=-1, preset=9, filters=None)
-	encodes["brotli"] = brotli.compress(message, quality=11, mode=brotli.MODE_TEXT)
-	encodes["paq"] = paq.compress(message)
 	order = sorted(encodes, key=lambda k: len(encodes[k]))
 	return encodes[order[0]]
 

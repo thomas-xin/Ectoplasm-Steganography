@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "Ectoplasm-Steganography"
-version = "0.0.6"
+version = "0.0.7"
 authors = [
   { name="thomas-xin", email="thomasxin@gmail.com" },
 ]
@@ -27,6 +27,12 @@ dependencies = [
   "pyzbar>=0.1.9",
   "raptorq>=2.0.0",
   "reedsolo>=1.7.0",
+]
+
+[project.optional-dependencies]
+full = [
+  "c2pa-python>=0.4.0",
+  "paq>=0.1.1",
 ]
 
 [project.urls]
