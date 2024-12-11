@@ -230,7 +230,7 @@ def decode_qr(images, channels=1):
 			value = value[51:]
 
 def complete_decode(image_np, data):
-	import patches as qreader_patches
+	from . import patches as qreader_patches
 	attempts = (1, 1.5, 2, 2.5, 3, 4) if data["confidence"] >= 0.75 else (1, 1.5, 2.5)
 	return qreader_patches._decode_qr_zbar(qreader_reader, image=image_np, detection_result=data, scale_factors=attempts)
 
