@@ -496,7 +496,7 @@ def encode_image(image, message, redundancy=6, dither_wrap=4, strength=1, compre
 			if i not in CHANNELS:
 				continue
 			fountain = encode_fountain(data, qr_scale=2, maxsize=maxsize, channels=1, redundancy=redundancy)
-			mult = floor(sqrt(size[0] * size[1] / 1048576))
+			mult = max(1, floor(sqrt(size[0] * size[1] / 1048576)))
 			if i == 1:
 				if size[0] >= 2048:
 					tesselation = "pythagorean"
