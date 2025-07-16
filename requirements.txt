@@ -2,7 +2,7 @@ base45>=0.4.4
 bitarray>=3.0.0
 brotli>=1.1.0
 c2pa-python>=0.4.0
-numpy==1.26.4
+numpy>=2.2.6
 opencv-python>=4.10.0.84
 paq>=0.1.1
 pillow>=11.0.0

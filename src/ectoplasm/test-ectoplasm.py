@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image, ImageChops, ImageEnhance, ImageOps
 import ectoplasm
 
+DEBUG = 1
 strength = 1
 
 def predicate(func, fountain, message, stats, path, debug=None):
@@ -208,7 +209,7 @@ for i in range(1):
 	im = Image.open(path)
 	t = time.time()
 	try:
-		ectoplasm.decode_image(im, debug=None)#"tests/decode-null")
+		ectoplasm.decode_image(im, debug="tests/decode-null" if DEBUG else None)
 	except Exception as ex:
 		print(repr(ex))
 	t2 = time.time()
@@ -227,12 +228,12 @@ for i in range(1000):
 	while not message.strip():
 		message = random.choice(texts)
 	t = time.time()
-	fountain = ectoplasm.encode_image(im, message, redundancy=1, dither_wrap=2, strength=strength, debug=None)#"tests/encode")
+	fountain = ectoplasm.encode_image(im, message, redundancy=1, dither_wrap=2, strength=strength, debug="tests/encode" if DEBUG else None)
 	t2 = time.time()
 	stats.setdefault("timings", {}).setdefault("encode", []).append([path, t2 - t])
 	transform = random.choice(tuple(available))
 	try:
-		assert predicate(available[transform], fountain, message, stats=stats, path=path, debug=None)#"tests/" + transform)
+		assert predicate(available[transform], fountain, message, stats=stats, path=path, debug="tests/" + transform if DEBUG else None)
 	except Exception as ex:
 		from traceback import print_exc
 		print_exc()

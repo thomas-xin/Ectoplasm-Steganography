@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "Ectoplasm-Steganography"
-version = "0.0.9"
+version = "0.0.11"
 authors = [
   { name="thomas-xin", email="thomasxin@gmail.com" },
 ]
@@ -20,7 +20,7 @@ dependencies = [
   "base45>=0.4.4",
   "bitarray>=3.0.0",
   "brotli>=1.1.0",
-  "numpy==1.26.4",
+  "numpy>=2.2.6",
   "opencv-python>=4.10.0.84",
   "pillow>=11.0.0",
   "pyqrcode>=1.2.1",
