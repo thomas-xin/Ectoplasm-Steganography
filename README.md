@@ -25,11 +25,31 @@ ectoplasm.save_image(image, b"Hello World!", "image~2.png")
 assert ectoplasm.decode_image("image~2.png") == b"Hello World!" # This works even if the steganographic layer was not applied (ectoplasm.encode_image), however since it relies on metadata, this produces a much less robust tag. For best results it is recommended to apply both encode_image and save_image (default behaviour in standalone mode).
 ```
 
-- As a standalone program:<br />
-`py -m ectoplasm "image.png" "Hello World!" --strength 1 --encode "image2.png"`<br />
-`py -m ectoplasm "image.png" --strength 1 --decode "image2.png"` - Windows<br /><br />
-`python3 -m ectoplasm "image.png" "Hello World!" --strength 1 --encode "image2.png"`<br />
-`python3 -m ectoplasm "image.png" --strength 1 --decode "image2.png"` - Linux
+- As a standalone program:
+```
+usage: ectoplasm [-h] [-m [MESSAGE]] [-f [FILE]] [-s STRENGTH] [-c | --compress | --no-compress]
+                 [-d | --debug | --no-debug] [-t | --test | --no-test] [-e [ENCODE]]
+                 image_path
+
+positional arguments:
+  image_path
+
+options:
+  -h, --help            show this help message and exit
+  -m, --message [MESSAGE]
+                        Input UTF-8 string to encode or compare
+  -f, --file [FILE]     Input binary file to encode or compare
+  -s, --strength STRENGTH
+                        Coding strength (higher = more perceptible + more robust)
+  -c, --compress, --no-compress
+                        Allow compression
+  -d, --debug, --no-debug
+                        Enable debugging
+  -t, --test, --no-test
+                        Enable testing
+  -e, --encode [ENCODE]
+                        Output encoded file
+```
 
 ## Intro
 Historically, steganography has existed for millenia, since well before the common era. The concept refers to the practice of concealing information within an unsuspecting object that is typically used to convey unrelated information, thus achieving security through obscurity.<br />
@@ -109,39 +129,53 @@ You have twenty-three hours before the piss DRRRROPLLLETS hit the fucking Earth,
 <img src="https://mizabot.xyz/u/kMamhLc0GJ5B4-5wx-4G43OBLMcL/initial.png" alt="Cover" width="427"/>
 
 #### The encoding process can be visualised as follows:
-<img src="https://mizabot.xyz/u/qr-8m6MDGJ5B4-5wx--AIHIDpsqp/image.png" alt="Mask Tilings" width="427"/><br />
-<img src="https://mizabot.xyz/u/wt6_75vDBBieQePucNyCMPhyA6SrCQ/image.png" alt="Data Embeddings" width="427"/>
+<img src="https://mizabot.xyz/u/iMnowbgzENJBAFItohtNBggEFBJg/image.png" alt="Mask Tilings" width="427"/><br />
+<img src="https://mizabot.xyz/u/-K-Y4KEzENJBAFItohtpBEAglFNE/image.png" alt="Data Embeddings" width="427"/>
 
 #### Producing a near visually transparent steganographic image of:
-<img src="https://mizabot.xyz/u/6pmzu90GGJ5B4-5w3I4G4H-H7Msr/fountain.png" alt="Steganographic" width="427"/>
+<img src="https://mizabot.xyz/u/qPWxgqYCENJBAFItohttFEkglhtg/fountain.png" alt="Steganographic" width="427"/>
 
 #### The data is now contained in a robust manner, and various modifications may be applied to the image without loss of the embedded message, such as:
-<img src="https://mizabot.xyz/u/ws2Fj4o5GJ5B4-5w3II24H4BfOqp/fountain.png" alt="Tampered" width="427"/><br />
-<img src="https://mizabot.xyz/u/tMjkprgDGJ5B4-5w3IOAOHIVvIep/image.png" alt="Tampered Embeddings" width="427"/><br />
-<img src="https://mizabot.xyz/u/9o2T9bocGJ5B4-5w3IOGO3-BLOM7/image.png" alt="Tampered Masks" width="427"/>
+<img src="https://mizabot.xyz/u/qPWxqs-8FRDSQQBSLaJTbQRAIJZSQA/fountain.png" alt="Tampered" width="427"/><br />
+<img src="https://mizabot.xyz/u/rPXhnJuDERDSQQBSLaJaSZZABBRTYA/image.png" alt="Tampered Embeddings" width="427"/><br />
+<img src="https://mizabot.xyz/u/qPexgqYCENJBAFItolptlkEkllpk/tampered-masks.png" alt="Tampered Masks" width="427"/>
 
-#### Due to the redundancy achieved through the error correction and fountain coding, the original message can be recovered in its entirety from the tampered image, as sufficient QR codes remain for a full decode through Reed-Solomon and RaptorQ.
+#### Due to the redundancy achieved through the error correction and fountain coding, the original ~1KB message can be recovered in its entirety from the tampered image, as sufficient QR codes remain for a full decode through Reed-Solomon and RaptorQ.
 
 ## Metrics
-#### Assigned a custom text and image dataset for a relatively small-scale evaluation, Ectoplasm currently achieves the following success rates at preserving the data for these image operations, using the default `strength` value of 1:
-- Directly decode: `162/162` **(100%)**
-- Randomly flip/transpose: `162/162` **(100%)**
-- Colour inversion: `155/155` **(100%)**
-- Translate image -50%~+50%: `155/155` **(100%)**
-- Blank out up to 50% of image: `149/150` **(99.3%)**
-- Rotate image using bicubic sampling: `130/159` **(81.8%)**
-- Skew image up to 50%, bicubic sampling: `117/147` **(79.6%)**
-- Crop image to minimum 25% size: `165/165` **(100%)**
-- Hueshift image 0~360 degrees: `170/170` **(100%)**
-- Resize image between 25% to 225% of original size, lanczos sampling: `120/165` **(72.7%)**
-- Apply "magik" grid distort filter, nearest neighbour sampling (visualised above): `157/157` **(100%)**
-- Adjust image brightness -50%~+50%: `96/157` **(61.1%)**
-- Compress image as JPEG: `1/185` **(0.5%)**
+#### Assigned a custom dataset for a relatively small-scale evaluation, Ectoplasm currently achieves the following success rates at preserving the entirety of the data for these image operations, using the default `strength` value of 1, images of size 800x800 to 3000x3000, and a payload size of 299 bytes:
+- Directly decode: `122/122` **(100%)**
+- Randomly flip/transpose: `147/147` **(100%)**
+- Colour inversion: `144/144` **(100%)**
+- Translate image -50%~+50%: `149/149` **(100%)**
+- Blank out up to 50% of image: `127/127` **(100%)**
+- Rotate image using bicubic sampling: `95/126` **(75.4%)**
+- Skew image up to 50%, bicubic sampling: `90/117` **(76.9%)**
+- Crop image to minimum 25% size: `148/148` **(100%)**
+- Hueshift image 0~360 degrees: `128/128` **(100%)**
+- Resize image between 25% to 225% of original size, lanczos sampling: `94/127` **(74%)**
+- Apply "magik" grid distort filter, bicubic sampling: `29/127` **(22.8%)**
+- Adjust image brightness -50%~+50%: `97/134` **(72.3%)**
+- Compress image as JPEG: `3/116` **(2.6%)**
+#### With the same configuration on a similar dataset; payload of 1KB:
+- Directly decode: `25/25` **(100%)**
+- Randomly flip/transpose: `19/19` **(100%)**
+- Colour inversion: `14/14` **(100%)**
+- Translate image -50%~+50%: `18/18` **(100%)**
+- Blank out up to 50% of image: `20/20` **(100%)**
+- Rotate image using bicubic sampling: `1/9` **(11.1%)**
+- Skew image up to 50%, bicubic sampling: `4/13` **(30.8%)**
+- Crop image to minimum 25% size: `13/13` **(100%)**
+- Hueshift image 0~360 degrees: `12/12` **(100%)**
+- Resize image between 25% to 225% of original size, lanczos sampling: `6/16` **(37.5%)**
+- Apply "magik" grid distort filter, bicubic sampling: `0/5` **(0%)**
+- Adjust image brightness -50%~+50%: `9/15` **(60%)**
+- Compress image as JPEG: `0/17` **(0%)**
 
 ## Limitations
-As seen from the metrics, any modifications that leave a large portion of the original image intact, such as nearest-neighbour sampling, do not cause many problems in decoding. However, the algorithm struggles slightly with bicubic or lanczos sampling, which may cause some images to fail to decode, when encoded at the default strength. The resistance to lossy compression is particularly poor, requiring encoding at around 1200% strength for a longer message to be recovered, which is unreasonable for general use, as it significantly distorts the image with noise and artifacts.<br />
-Ectoplasm is designed for images of size 1024x1024 to 2048x2048, and compressed data sizes of 4B to 1KiB, but may function outside those ranges at reduced levels of redundancy, or lowered computational efficiency. The absolute maximum size that may be assigned for any usage is 64KiB, beyond which integer overflow of the unsigned 2-byte headers would prevent successful encoding. In practice however, the amount of valid tile spaces is usually the limiting factor, in which case there is not yet a straightforward way to predict.
-<br />
+As seen from the metrics, any modifications that leave a large portion of the original image intact, such as nearest-neighbour and linear sampling, do not cause many problems in decoding. However, the algorithm struggles with bicubic or lanczos sampling, which may cause some images to fail to decode, particularly with higher payload sizes (and thus lowered available redundancy). The resistance to lossy compression is particularly poor, requiring encoding at around 1200% strength for a longer message to be recovered, which is unreasonable for general use, as it significantly distorts the image with noise and artifacts.<br />
+Ectoplasm is designed for images of size 1024x1024 to 2048x2048, and compressed data sizes of 4B to 1KiB, but may function outside those ranges at reduced levels of redundancy, or lowered computational efficiency. The absolute maximum size that may be assigned for any usage is 64KiB, beyond which integer overflow of the unsigned 2-byte headers would prevent successful encoding. More data may be represented if it has a low entropy, enabling compression.<br />
+Generally, a maximum of about 12KiB of compressed data can be stored in a single watermark. The default strength value of 1 will typically produce a PSNR of about 38 respective to the original image, making it effective for images where perfect accuracy is not important, such as AI-generated content.<br />
 One caveat worth mentioning is that due to the current dithering methods used to better visually hide the watermarking, random uniform noise is introduced into the image. This can significantly impact compression algorithms, for example a PNG that was 1MB in size may be inflated to 4MB with steganography applied, due to the effect of noise on entropy. This may change in the future with optimisations.
 
 ## Roadmap

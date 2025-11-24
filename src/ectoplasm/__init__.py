@@ -1,14 +1,21 @@
 import io
 import logging
+from math import sqrt, floor, ceil, log10
 import os
 os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
-from math import sqrt, floor
+import random
+import sys
 from PIL import Image
 import numpy as np
 import reedsolo
 
 rsc = reedsolo.RSCodec(1)
 CHANNELS = [1, 2, 4]
+PLANES = [
+	("pythagorean", 2),
+	("diagonal", 3),
+	("plain", 4),
+]
 
 def encode_b128(b):
 	paddings = 0
@@ -63,6 +70,17 @@ def quantise_into(a, clip=None, in_place=True, checker=1, dtype=np.uint8):
 		np.floor(a, out=a)
 	return np.asanyarray(a, dtype=dtype)
 
+def PSNR(original, compressed):
+	if original.mode != compressed.mode:
+		original = original.convert(compressed.mode)
+	mse = np.mean((np.asanyarray(original, dtype=np.uint8) - np.asanyarray(compressed, dtype=np.uint8)) ** 2)
+	if(mse == 0):  # MSE is zero means no noise is present in the signal .
+				# Therefore PSNR have no importance.
+		return 100
+	max_pixel = 255
+	psnr = 20 * log10(max_pixel / sqrt(mse))
+	return psnr
+
 def encode_nrzi(text):
 	rs2 = reedsolo.RSCodec(min(len(text) + 1 >> 1, 85))
 	data = rs2.encode(text)
@@ -112,7 +130,6 @@ def encode_qr(text, version=3):
 	b.seek(0)
 	box = (0, 0, w, w)
 	imo = Image.open(b)
-	import random
 	if random.randint(0, 1):
 		imo = imo.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 	imo = imo.rotate(random.randint(0, 3) * 90)
@@ -122,7 +139,7 @@ qreader_scanner = None
 pyzbar_reader = None
 qreader_reader = None
 workers = None
-def decode_qr(images, channels=1):
+def decode_qr(images, channels=1, debug=None):
 	"""
 	Decodes QR codes from a list of images.
 
@@ -142,27 +159,29 @@ def decode_qr(images, channels=1):
 	global qreader_scanner, pyzbar_reader, qreader_reader, workers
 	if isinstance(images, Image.Image):
 		images = [images]
-	if not qreader_scanner:
-		from qreader import QReader
-		qreader_scanner = QReader(model_size="n", min_confidence=0.4, reencode_to=None)
 	if not pyzbar_reader:
 		import pyzbar.pyzbar
 		pyzbar_reader = pyzbar.pyzbar
 	import base45
+	import cv2
+	areas = []
+	found = 0
 	seen = []
-	scans = []
-	for image in images:
+	backs = []
+	for i, image in enumerate(images):
 		if image.mode not in ("L", "RGB"):
 			image = image.convert("L")
 		image_np = np.asanyarray(image, dtype=np.uint8)
-		scanned = qreader_scanner.detect(image_np)
-		if not scanned:
-			continue
-		for scale_factor in (0.5,):
+		for scale_factor in (0.5, 1, 2):
 			im = image.resize((round(image.width * scale_factor), round(image.height * scale_factor)), resample=Image.Resampling.LANCZOS)
-			a = (np.asanyarray(im, dtype=np.uint8) > 127).view(np.uint8)
+			a = np.asanyarray(im, dtype=np.uint8)
+			a = cv2.medianBlur(a, 3)
+			a = (a > 127).view(np.uint8)
 			a *= 255
-			im = Image.fromarray(a, "L").resize((im.width * 3, im.height * 3), resample=Image.Resampling.NEAREST)
+			im = Image.fromarray(a, "L")#.resize((im.width * 2, im.height * 2), resample=Image.Resampling.NEAREST)
+			backs.append(im)
+			if debug:
+				im.save(f"{debug}/{i}-{scale_factor}.png")
 			dets = pyzbar_reader.decode(im, symbols=[pyzbar_reader.ZBarSymbol.QRCODE])
 			if dets:
 				a2 = np.array(image, dtype=np.uint8)
@@ -173,57 +192,28 @@ def decode_qr(images, channels=1):
 						value = base45.b45decode(decoded)
 					except ValueError:
 						continue
+					areas.append(data.rect.width * data.rect.height)
 					poly = np.array([[point.x / scale_factor / 3, point.y / scale_factor / 3] for point in data.polygon], dtype=np.int32)
 					polys.append(poly)
 					while len(value) >= 51:
 						yield value[:51]
+						found += 1
 						value = value[51:]
 				import cv2
 				cv2.fillPoly(a2, pts=polys, color=(255, 255, 255))
 				image = Image.fromarray(a2)
-		if max(image.width, image.height) > 1024:
-			small = min(image.width, image.height, 1024)
-			image = image.resize((small, small), resample=Image.Resampling.LANCZOS)
+		# if max(image.width, image.height) > 1024:
+		# 	small = min(image.width, image.height, 1024)
+		# 	image = image.resize((small, small), resample=Image.Resampling.LANCZOS)
 		seen.append(image)
-		scans.append(scanned)
+		if not found and len(seen) >= channels:
+			break
 	if not qreader_reader:
 		from qreader import QReader
-		qreader_reader = QReader(model_size="s", min_confidence=0.5, reencode_to=None)
+		qreader_reader = QReader(model_size="m", min_confidence=0.8, reencode_to=None)
 	if not workers:
 		import concurrent.futures
 		workers = concurrent.futures.ThreadPoolExecutor(max_workers=8)
-	img_futs = []
-	for image, scanned in zip(seen, scans):
-		img_fut = []
-		for data in scanned:
-			fut = workers.submit(complete_decode, image_np, data)
-			img_fut.append(fut)
-		img_futs.append(img_fut)
-	for i, image in enumerate(seen):
-		if not img_futs[i]:
-			continue
-		a2 = np.array(image, dtype=np.uint8)
-		polys = []
-		for fut in img_futs[i]:
-			decoded = fut.result()
-			try:
-				assert decoded
-				text = decoded[0].result.data.decode("ascii")
-				value = base45.b45decode(text)
-			except (AssertionError, ValueError, UnicodeDecodeError):
-				yield None
-				continue
-			while len(value) >= 51:
-				yield value[:51]
-				value = value[51:]
-			poly = np.array([[point[0] / scale_factor / 3, point[1] / scale_factor / 3] for point in data["polygon_xy"]], dtype=np.int32)
-			polys.append(poly)
-			while len(value) >= 51:
-				yield value[:51]
-				value = value[51:]
-		import cv2
-		cv2.fillPoly(a2, pts=polys, color=(255, 255, 255))
-		seen[i] = Image.fromarray(a2)
 	futs = []
 	for i, image in enumerate(seen):
 		image_np = np.asanyarray(image, dtype=np.uint8)
@@ -231,20 +221,75 @@ def decode_qr(images, channels=1):
 			if not data:
 				yield None
 				continue
+			if np.prod(data["wh"]) < 16 or np.max(np.abs(data["padded_quad_xyn"] - 0.5)) > 2:
+				yield None
+				continue
 			fut = workers.submit(complete_decode, image_np, data)
 			futs.append(fut)
+	if futs:
+		for i, image in enumerate(backs):
+			image_np = np.asanyarray(image, dtype=np.uint8)
+			for data in qreader_reader.detect(image_np):
+				if not data:
+					yield None
+					continue
+				if np.prod(data["wh"]) < 16 or np.max(np.abs(data["padded_quad_xyn"] - 0.5)) > 2:
+					yield None
+					continue
+				fut = workers.submit(complete_decode, image_np, data)
+				futs.append(fut)
 	for fut in futs:
 		decoded = fut.result()
-		try:
-			assert decoded
-			text = decoded[0].result.data.decode("ascii")
-			value = base45.b45decode(text)
-		except (AssertionError, ValueError, UnicodeDecodeError):
+		if not decoded:
 			yield None
 			continue
-		while len(value) >= 51:
-			yield value[:51]
-			value = value[51:]
+		for qr in decoded:
+			try:
+				text = qr.result.data.decode("ascii")
+				value = base45.b45decode(text)
+			except (ValueError, UnicodeDecodeError):
+				yield None
+				continue
+			areas.append(qr.result.rect.width * qr.result.rect.height)
+			while len(value) >= 51:
+				yield value[:51]
+				found += 1
+				value = value[51:]
+	if not areas:
+		return
+	avg_area = np.mean(areas)
+	avg_dim = round(np.sqrt(avg_area) * 6)
+	futs = []
+	for i, image in enumerate(seen):
+		for x in range(0, image.width - avg_dim // 2, avg_dim):
+			for y in range(0, image.height - avg_dim // 2, avg_dim):
+				im = image.crop((x, y, round(x + avg_dim * 1.25), round(y + avg_dim * 1.25))).rotate(len(futs) % 4 * 90)
+				image_np = np.asanyarray(im, dtype=np.uint8)
+				for data in qreader_reader.detect(image_np):
+					if not data:
+						yield None
+						continue
+					if np.prod(data["wh"]) < 16 or np.max(np.abs(data["padded_quad_xyn"] - 0.5)) > 2:
+						yield None
+						continue
+					fut = workers.submit(complete_decode, image_np, data)
+					futs.append(fut)
+	for fut in futs:
+		decoded = fut.result()
+		if not decoded:
+			yield None
+			continue
+		for qr in decoded:
+			try:
+				text = qr.result.data.decode("ascii")
+				value = base45.b45decode(text)
+			except (ValueError, UnicodeDecodeError):
+				yield None
+				continue
+			while len(value) >= 51:
+				yield value[:51]
+				found += 1
+				value = value[51:]
 
 def complete_decode(image_np, data):
 	from . import patches as qreader_patches
@@ -278,6 +323,8 @@ def to_bytes(message):
 		raise TypeError(f"`message` ({type(message)}) should be an instance of `str`, `bytes`, or `memoryview`.")
 	return message
 
+ZPAQ_HEADER = b'7kSt\xa01\x83\xd3\x8c\xb2(\xb0\xd3zPQ\x01\x01\xff\x00\t\x10\x00\x00\x17\x03\x0e\x08\x0e\x00\x02\t\xff\x03\x05\x08\x0b\x03\x08\x0e\x04\x08\x0e\x05\x08\x0e\x06\x08\x0e\x07\x08\x0e\x08\x08\x0e\t\x04\x12\x14\x03\r\x08\x0e\x0c\x03\r\x08\x0e\x0e\x03\x0e\x08\x0e\x10\x07\x08\x00\x12\x18\xff\x07\x10\x00\x13\x18\xff\x06\x08\x13\x12\x18\xff\t\x13\x14 \xff\x06\x00\x15\x14\x18\xff\x00\x12h\x87\xffXrE\xaf\xdf\x8fA\xaf\xff\xe7\x1a/\n_\x00F\x97\x14\x85\x01p?\x03_\x004_\x00JF\x19;p_\x024_\x034_\x03JF\x19;\tp\x19;\tp\x19;\tp\x19;\tp\x19;\tp\x19;\tp\x19;\t;p_\x0bF\x97\x18\x85\x01p_\x0c4B\xaf\x01<J\tD<_\x0cJF\x19;p_\x0e4B\xa7\x03<J\t\tD<_\x0eJF\x19;p_\x104B\xaf\x03<J\t\t\tD<_\x10JF\x19;p_\x134J\x04\xcf\x08\x84\xcf\x08p_\x154J\x04\xcf\x08\x84\t\xcf\x08\x84\xd7\x05\xcf\x08p8\x00\x01\x00'
+
 def encode_message(message):
 	"""
 	Compresses the given message using various compression algorithms and returns the smallest compressed result.
@@ -299,6 +346,14 @@ def encode_message(message):
 		bytes: The smallest compressed version of the message.
 	"""
 	encodes = {}
+	try:
+		import zpaq
+	except ImportError:
+		pass
+	else:
+		b = zpaq.compress(message)
+		if b.startswith(ZPAQ_HEADER):
+			encodes["zpaq"] = b"\xad" + b.removeprefix(ZPAQ_HEADER)
 	try:
 		import brotli
 	except ImportError:
@@ -357,6 +412,10 @@ def decode_message(message):
 		raise TypeError(f"`message` ({type(message)}) should be an instance of `str`, `bytes`, or `memoryview`.")
 	if not message:
 		raise ValueError("Input is empty.")
+	if message.startswith(b"\xad"):
+		message = ZPAQ_HEADER + message[1:]
+		import zpaq
+		return zpaq.decompress(message)
 	if message.startswith(b"\x00c"):
 		import paq
 		return paq.decompress(message)
@@ -426,6 +485,17 @@ def tesselate(tesselation, grid, tile, seed=0):
 	w, h = tile
 	rows = H // h
 	cols = W // w
+	if tesselation == "diagonal":
+		for x in range(rows // 2):
+			for y in range(cols // 2):
+				a, b = x + 1, y + 1
+				if a + b > rows / 2:
+					continue
+				yield (x * w, y * h, w, h)
+				yield (W - (x + 1) * w, y * h, w, h)
+				yield (x * w, H - y * h, w, h)
+				yield (W - (x + 1) * w, H - (y + 1) * h, w, h)
+		return
 	if tesselation == "plain":
 		coords = diagonals(rows, cols)
 		coords *= np.uint32((w, h))
@@ -476,14 +546,21 @@ def batch_images(it, maxsize, tesselation="plain", tile=4, qr_scale=2, seed=0):
 	im = retrieve(qr_scale=qr_scale)
 	scaled = im.width * tile
 	grid_img = Image.new("1", (maxsize, maxsize))
-	rtes = tesselation if tesselation != "diagonal" else "plain"
-	for x, y, w, h in tesselate(rtes, (maxsize, maxsize), (scaled, scaled), seed=seed):
+	for x, y, w, h in tesselate(tesselation, (maxsize, maxsize), (scaled, scaled), seed=seed):
 		qs = 2
 		im2 = retrieve(qs).resize((w, h), resample=Image.Resampling.NEAREST)
 		grid_img.paste(im2, (x, y))
 	if tesselation == "diagonal":
-		x, y = round(maxsize / 2), round(maxsize / 2)
-		grid_img = grid_img.resize((round(maxsize * sqrt(2)), round(maxsize * sqrt(2))), resample=Image.Resampling.LANCZOS).rotate(45, resample=Image.Resampling.BICUBIC, expand=True).crop((x, y, x + maxsize, y + maxsize))
+		scaled = im.width * (tile + 1)
+		smallsize = ceil(maxsize / sqrt(2))
+		grid_img_2 = Image.new("1", (smallsize, smallsize))
+		for x, y, w, h in tesselate("plain", (smallsize, smallsize), (scaled, scaled), seed=seed):
+			qs = 2
+			im2 = retrieve(qs).resize((w, h), resample=Image.Resampling.NEAREST)
+			grid_img_2.paste(im2, (x, y))
+		grid_img_2 = grid_img_2.convert("LA").rotate(45, resample=Image.Resampling.NEAREST, expand=True)
+		grid_img_2 = grid_img_2.crop((0, 0, maxsize, maxsize))
+		grid_img = Image.alpha_composite(grid_img.convert("LA"), grid_img_2).convert("1")
 	return grid_img
 
 qr_map = {
@@ -534,13 +611,13 @@ def encode_fountain(data, qr_scale=2, maxsize=512, channels=1, redundancy=6, dir
 			yield text
 	return iter_fountain()
 
-def decode_fountain(fountain):
+def decode_fountain(fountain, debug=None):
 	decoder = None
 	target_size, target_n = None, None
 	from raptorq import Decoder
 	seen = set()
 	i = 0
-	for i, data in enumerate(decode_qr(fountain, channels=len(CHANNELS)), 1):
+	for i, data in enumerate(decode_qr(fountain, channels=len(CHANNELS), debug=debug), 1):
 		if not data:
 			continue
 		header, packet = data[:5], data[5:]
@@ -573,6 +650,17 @@ def forceload(image):
 	if isinstance(image, np.ndarray):
 		image = Image.fromarray(image, mode="RGB" if image.shape[-1] == 3 else "L")
 	elif isinstance(image, (str, os.PathLike, io.IOBase)):
+		if isinstance(image, str) and (image.startswith("http://") or image.startswith("https://")):
+			import streamshatter
+			image = streamshatter.ChunkManager(
+				url=image,
+				fileobj=io.BytesIO(),
+				concurrent_limit=8,
+				size_limit=268435456,
+				log_progress=False,
+				timeout=12,
+				max_attempts=3,
+			).run()
 		image = Image.open(image)
 	elif isinstance(image, (bytes, memoryview)):
 		image = Image.open(io.BytesIO(image))
@@ -603,29 +691,23 @@ def encode_image(image, message, redundancy=6, dither_wrap=4, strength=1, compre
 		data = encode_message(message)
 	else:
 		data = message
+	cache = {}
 
 	def encode_part(imt, depth=256, start=0):
 		for i, arr in enumerate(imt, start):
 			if i not in CHANNELS:
 				continue
-			fountain = encode_fountain(data, qr_scale=2, maxsize=maxsize, channels=1, redundancy=redundancy)
-			mult = max(1, floor(sqrt(size[0] * size[1] / 1048576)))
-			if i == 1:
-				if size[0] >= 2048:
-					tesselation = "pythagorean"
-					tile = 1 * mult
-				else:
-					tesselation = "plain"
-					tile = 4 * mult
-			elif i == 2:
-				tesselation = "diagonal"
-				tile = 4 * mult
-			else:
-				tesselation = "pythagorean"
-				tile = 2 * mult
-			steg = batch_images(fountain, maxsize, tesselation, tile, seed=i)
-			if steg.size != size:
-				steg = steg.resize(size, resample=Image.Resampling.NEAREST)
+			try:
+				steg = cache[i]
+			except KeyError:
+				fountain = encode_fountain(data, qr_scale=2, maxsize=maxsize, channels=1, redundancy=redundancy)
+				mult = max(1, floor(sqrt(size[0] * size[1] / 1048576)))
+				tesselation, tile = PLANES[CHANNELS.index(i)]
+				tile *= mult
+				steg = batch_images(fountain, maxsize, tesselation, tile, seed=i)
+				if steg.size != size:
+					steg = steg.resize(size, resample=Image.Resampling.NEAREST)
+				cache[i] = steg
 			stegmap = np.asanyarray(steg, dtype=np.uint8).T
 			if debug:
 				im2 = Image.fromarray(stegmap * 255, "L")
@@ -650,17 +732,27 @@ def encode_image(image, message, redundancy=6, dither_wrap=4, strength=1, compre
 	rand = np.random.random_sample(rgb.shape)
 	rand -= 0.5
 	rand *= strength / 72
+	np.clip(rgb, 0.005, 0.995, out=rgb)
 	rgb += rand
 
-	yuv = cv2.cvtColor(rgb, cv2.COLOR_RGB2YCrCb, dst=rgb)
-	encode_part(yuv.T, depth=40 / strength, start=0)
-	rgb = cv2.cvtColor(yuv, cv2.COLOR_YCrCb2RGB, dst=rgb)
+	if min(CHANNELS) < 3:
+		yuv = cv2.cvtColor(rgb, cv2.COLOR_RGB2YCrCb, dst=rgb)
+		encode_part(yuv.T, depth=40 / strength, start=0)
+		rgb = cv2.cvtColor(yuv, cv2.COLOR_YCrCb2RGB, dst=rgb)
+
+	np.clip(rgb, 0.005, 0.995, out=rgb)
+
+	if max(CHANNELS) >= 3:
+		hls = cv2.cvtColor(rgb, cv2.COLOR_RGB2HLS, dst=rgb)
+		encode_part(hls.T, depth=48 / strength, start=3)
+		rgb = cv2.cvtColor(hls, cv2.COLOR_HLS2RGB, dst=rgb)
 
 	np.clip(rgb, 0, 1, out=rgb)
 
-	hls = cv2.cvtColor(rgb, cv2.COLOR_RGB2HLS, dst=rgb)
-	encode_part(hls.T, depth=64 / strength, start=3)
-	rgb = cv2.cvtColor(hls, cv2.COLOR_HLS2RGB, dst=rgb)
+	if min(CHANNELS) < 3:
+		yuv = cv2.cvtColor(rgb, cv2.COLOR_RGB2YCrCb, dst=rgb)
+		encode_part(yuv.T, depth=40 / strength, start=0)
+		rgb = cv2.cvtColor(yuv, cv2.COLOR_YCrCb2RGB, dst=rgb)
 
 	rgb *= 255
 	rgb = quantise_into(rgb, clip=(0, 255), checker=dither_wrap)
@@ -690,9 +782,11 @@ def decode_image(image, strength=1, path=None, all_metadata=False, debug=None):
 		# rgb = cv2.resize(rgb, (width // 2, height // 2), interpolation=cv2.INTER_AREA)
 		ims = []
 		def decode_part(imt, depth=256, start=0):
+			backups = []
 			for i, arr in enumerate(imt, start):
 				if i not in CHANNELS:
 					continue
+
 				if debug:
 					im2 = Image.fromarray((arr.T * 255).astype(np.uint8), "L")
 					im2.save(f"{debug}/map-{i}.png")
@@ -704,27 +798,40 @@ def decode_image(image, strength=1, path=None, all_metadata=False, debug=None):
 				if not i & 1:
 					np.subtract(0.5, arr, out=arr)
 				a = arr.T * 2 * 255
+				bak = Image.fromarray(a.astype(np.uint8), mode="L")
+				backups.append(bak)
 				# a = cv2.GaussianBlur(a, (3, 3), 0, dst=a)
 				square = int(np.sqrt(width * height))
-				if i == 4:
-					small = min(2048, max(square // 2, width, height))
-				else:
-					small = min(1024, max(square // 4, width // 2, height // 2))
-				a = cv2.resize(a, (small, small), interpolation=cv2.INTER_AREA)
+				small = min(2048, max(square // 2, width, height))
+				if a.shape != (small, small):
+					a = cv2.resize(a, (small, small), interpolation=cv2.INTER_AREA)
 				im = Image.fromarray(a.astype(np.uint8), mode="L")
 				if debug:
 					im.save(f"{debug}/{i}.png")
 				ims.append(im)
 				yield im
 
-		yuv = cv2.cvtColor(rgb, cv2.COLOR_RGB2YCrCb)
-		yield from decode_part(yuv.T, depth=40 / strength, start=0)
+		if min(CHANNELS) < 3:
+			yuv = cv2.cvtColor(rgb, cv2.COLOR_RGB2YCrCb)
+			i1 = decode_part(yuv.T, depth=40 / strength, start=0)
 
-		hls = cv2.cvtColor(rgb, cv2.COLOR_RGB2HLS)
-		yield from decode_part(hls.T, depth=64 / strength, start=3)
+		if max(CHANNELS) >= 3:
+			hls = cv2.cvtColor(rgb, cv2.COLOR_RGB2HLS)
+			i2 = decode_part(hls.T, depth=48 / strength, start=3)
+
+		for im in i1:
+			if im is None:
+				break
+			yield im
+		for im in i2:
+			if im is None:
+				break
+			yield im
+		yield from i1
+		yield from i2
 
 	try:
-		return decode_fountain(chunking(image))
+		return decode_fountain(chunking(image), debug=debug)
 	except Exception:
 		if image.info:
 			if image.info.get("ectoplasm"):
@@ -747,13 +854,17 @@ def decode_image(image, strength=1, path=None, all_metadata=False, debug=None):
 
 				return json.dumps(image.info, cls=BytesEncoder).encode("utf-8")
 		if path:
+			import json
 			try:
 				import c2pa
+				import filetype
 			except ImportError:
 				pass
 			else:
 				try:
-					return c2pa.read_file(path, "cache").encode("utf-8")
+					with open(path, "rb") as f:
+						fmt = filetype.guess_extension(f)
+						return c2pa.Reader(fmt, f).json().encode("utf-8")
 				except Exception:
 					pass
 		raise
@@ -769,5 +880,44 @@ def save_image(image, message, path, compress=True):
 		data = message
 	meta = PngInfo()
 	meta.add_text("ectoplasm", data.decode("charmap"))
-	image.save(path, format="png", compress_level=6, pnginfo=meta)
+	image.save(path, format="png" if path.endswith("png") else "webp", lossless=True, compress_level=6, pnginfo=meta)
 	return image
+
+
+
+def main():
+	import argparse
+	parser = argparse.ArgumentParser()
+	parser.add_argument("image_path")
+	parser.add_argument("-m", "--message", help="Input UTF-8 string to encode or compare", default=None, nargs="?", required=False)
+	parser.add_argument("-f", "--file", help="Input binary file to encode or compare", default=None, nargs="?", required=False)
+	parser.add_argument("-s", "--strength", help="Coding strength (higher = more perceptible + more robust)", type=float, default=1, required=False)
+	parser.add_argument("-c", "--compress", help="Allow compression", default=True, action=argparse.BooleanOptionalAction, required=False)
+	parser.add_argument("-d", "--debug", help="Enable debugging", default=False, action=argparse.BooleanOptionalAction, required=False)
+	parser.add_argument("-t", "--test", help="Enable testing", default=False, action=argparse.BooleanOptionalAction, required=False)
+	parser.add_argument("-e", "--encode", help="Output encoded file", nargs="?", const=True, default=None, required=False)
+	args = parser.parse_args()
+
+	if args.message is not None:
+		message = args.message.encode("utf-8")
+	elif args.file is not None:
+		with open(args.file, "rb") as f:
+			message = f.read()
+	else:
+		message = None
+	if args.test:
+		from .tests import result
+	elif args.encode is not None:
+		orig = forceload(args.image_path)
+		im = encode_image(orig, message or b"", strength=args.strength, compress=args.compress, debug="tests/encode" if args.debug else None)
+		if not isinstance(args.encode, str):
+			args.encode = (p := args.image_path.rsplit(".", 1))[0] + "~." + p[1]
+		save_image(im, message, args.encode)
+		psnr = PSNR(orig, im)
+		print(f'Output successfully written to "{args.encode}"; PSNR: {psnr}.')
+	else:
+		decoded = decode_image(args.image_path, strength=args.strength, debug="tests/decode" if args.debug else None)
+		if message is not None:
+			assert message == decoded, "Decoded message does not match."
+		else:
+			sys.stdout.buffer.write(decoded)

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "Ectoplasm-Steganography"
-version = "0.0.11"
+version = "0.0.12"
 authors = [
   { name="thomas-xin", email="thomasxin@gmail.com" },
 ]
@@ -18,22 +18,27 @@ classifiers = [
 ]
 dependencies = [
   "base45>=0.4.4",
-  "bitarray>=3.0.0",
-  "brotli>=1.1.0",
+  "bitarray>=3.8.0",
+  "brotli>=1.2.0",
   "numpy>=2.2.6",
-  "opencv-python>=4.10.0.84",
-  "pillow>=11.0.0",
+  "opencv-python>=4.12.0.88",
+  "pillow>=12.0.0",
   "pyqrcode>=1.2.1",
   "pyzbar>=0.1.9",
+  "pyzpaq>=0.1.11",
   "raptorq>=2.0.0",
   "reedsolo>=1.7.0",
+  "streamshatter>=1.1.9",
 ]
 
 [project.optional-dependencies]
 full = [
-  "c2pa-python>=0.4.0",
-  "paq>=0.1.1",
+  "c2pa-python>=0.27.1",
+  "filetype>=1.2.0",
 ]
+
+[project.scripts]
+ectoplasm = "ectoplasm.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/thomas-xin/Ectoplasm-Steganography"
